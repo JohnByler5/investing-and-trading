@@ -135,7 +135,7 @@ def main():
     start = time.time()
 
     print(f'({time.time() - start:.2f}s) Loading and processing data...')
-    df = load_and_process_data('venv/stock-data/SPY_1993-01-29_2023-11-10.csv')
+    df = load_and_process_data('stock-data/SPY_1993-01-29_2023-11-10.csv')
     x, y = prepare_data(df, window_length=INPUT_DAYS, feature_labels=FEATURES, target_label=TARGET)
     x_train, x_test, y_train, y_test = train_test_split(x, y, test_size=TEST_SPLIT)
 

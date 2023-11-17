@@ -89,7 +89,7 @@ def main():
     start = time.time()
 
     print(f'({time.time() - start:.2f}s) Loading and processing data...')
-    x, y = load_data('venv/options-data/current.parquet')
+    x, y = load_data('options-data/current.parquet')
     x_train, x_test, y_train, y_test = train_test_split(x, y, test_size=TEST_SPLIT)
 
     scaler_y = StandardScaler()

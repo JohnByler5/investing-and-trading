@@ -10,7 +10,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 pd.options.display.max_columns = None
 
 DATE_FORMAT = '%Y-%m-%d'
-SYMBOLS_FILE_PATH = 'venv/tickers/s&p-500.csv'
+SYMBOLS_FILE_PATH = 'tickers/s&p-500.csv'
 START_DATE = datetime.datetime.strptime('2001-11-01', DATE_FORMAT)
 END_DATE = datetime.datetime.today()
 OPTION_TYPE = 'C'
@@ -170,7 +170,7 @@ def main():
 
             size = sys.getsizeof(options_data) / 1024 ** 2
             print(f'({datetime.timedelta(seconds=int(round(time.time() - start)))}) Saving {size:,.2f}MB of data...')
-            file_path = f'venv/options-data/{len(symbols)}-{int(start)}.parquet'
+            file_path = f'/options-data/{len(symbols)}-{int(start)}.parquet'
             with lock:
                 to_concat = []
                 if prev_df is not None and not prev_df.empty:

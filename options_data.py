@@ -8,9 +8,8 @@ import sys
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 pd.options.display.max_columns = None
-
 DATE_FORMAT = '%Y-%m-%d'
-SYMBOLS_FILE_PATH = 'venv/tickers/s&p-500.csv'
+SYMBOLS_FILE_PATH = 'tickers/s&p-500.csv'
 START_DATE = datetime.datetime.strptime('2001-11-01', DATE_FORMAT)
 END_DATE = datetime.datetime.today()
 
@@ -61,7 +60,7 @@ class OptionsDataCollector:
                 self.process_symbol(symbol)
 
                 self.update(f'Saving {sys.getsizeof(self.data) / 1024 ** 2:,.2f}MB of data...')
-                self.save_data(f'venv/options-data/{len(self.symbols)}-{int(self.start)}.csv')
+                self.save_data(f'options-data/{len(self.symbols)}-{int(self.start)}.csv')
 
     def process_symbol(self, symbol):
         price_data = self.get_price_data(symbol)

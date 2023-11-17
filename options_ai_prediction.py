@@ -64,9 +64,9 @@ def run_backtest(df, x, y, model, mean, std):
 def main():
     start = time.time()
     print(f'({time.time() - start:.2f}s) Loading and processing data...')
-    df, x, y = load_data('venv/options-data/100-1700017473.parquet')
+    df, x, y = load_data('options-data/100-1700017473.parquet')
     print(f'({time.time() - start:.2f}s) Loading model...')
-    model = keras.models.load_model('venv/models/4-512-0.001-20-2048-1700152318')
+    model = keras.models.load_model('models/4-512-0.001-20-2048-1700152318')
     print(f'({time.time() - start:.2f}s) Running backtest...')
     run_backtest(df, x, y, model, mean=-0.00764923, std=0.04477473)
 
