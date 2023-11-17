@@ -4,7 +4,7 @@ import threading
 import exchange_calendars as xcal
 import ivolatility as ivol
 import pandas as pd
-import sys
+from pympler import asizeof
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 pd.options.display.max_columns = None
@@ -59,7 +59,7 @@ class OptionsDataCollector:
                 self.update(f'({i:,} / {len(self.symbols):,}) {symbol}')
                 self.process_symbol(symbol)
 
-                self.update(f'Saving {sys.getsizeof(self.data) / 1024 ** 2:,.2f}MB of data...')
+                self.update(f'Saving {asizeof.asizeof(self.data) / 1024 ** 2:,.2f}MB of data...')
                 self.save_data(f'options-data/{len(self.symbols)}-{int(self.start)}.csv')
 
     def process_symbol(self, symbol):
