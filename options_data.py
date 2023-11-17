@@ -70,9 +70,9 @@ class OptionsDataCollector:
 
         self.update(f'Gathering options data for {len(self.dates):,} dates...')
         for result in self.process_dates(symbol):
-            self.data.append(self.add_data(result, price_data))
+            self.data.append(self.fix_symbol(self.add_data(result, price_data), symbol))
 
-        self.update(f'Finished processing {len(self.dates):,}) dates')
+        self.update(f'Finished processing {len(self.dates):,} dates')
 
     def process_dates(self, symbol):
         for j, date in enumerate(reversed(self.dates), 1):
@@ -129,6 +129,11 @@ class OptionsDataCollector:
             new_data.append(self.create_new_row(date, price_data))
 
         df[['open_expiry_price', 'close_expiry_price', 'days_behind']] = new_data
+        return df
+
+    @staticmethod
+    def fix_symbol(df, symbol):
+        df['symbol'] = symbol
         return df
 
     def get_price_data(self, symbol):
