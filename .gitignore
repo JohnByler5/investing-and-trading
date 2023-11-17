@@ -1,0 +1,10 @@
+# Ignore venv and .idea
+venv/
+.idea/
+
+# Ignore models
+models/
+
+# Ignore data
+options-data/
+stock-data/
