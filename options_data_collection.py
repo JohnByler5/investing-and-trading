@@ -10,7 +10,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 pd.options.display.max_columns = None
 
 DATE_FORMAT = '%Y-%m-%d'
-SYMBOLS_FILE_PATH = 'tickers/s&p-500.csv'
+SYMBOLS_FILE_PATH = 'tickers/s&p500.csv'
 START_DATE = datetime.datetime.strptime('2001-11-01', DATE_FORMAT)
 END_DATE = datetime.datetime.today()
 OPTION_TYPE = 'C'

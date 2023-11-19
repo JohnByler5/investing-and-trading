@@ -147,7 +147,7 @@ def set_method(endpoint):
                 text = eval(req.text)["error"]
             except:
                 text = req.text
-            raise Exception(f'Error: {req.status_code} {text}')
+            return f'{req.status_code} {text}', pd.DataFrame()
 
     def factory(**kwargs):
         params = dict(login_params, **kwargs)

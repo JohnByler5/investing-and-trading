@@ -1,17 +1,26 @@
 import datetime
-import time
+import os
 import threading
-import exchange_calendars as xcal
-import ivolatility as ivol
-import pandas as pd
-from pympler import asizeof
+import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
+import pandas as pd
+import numpy as np
+
+import ivolatility as ivol
+
 pd.options.display.max_columns = None
+
 DATE_FORMAT = '%Y-%m-%d'
-SYMBOLS_FILE_PATH = 'tickers/s&p-500.csv'
+
+SYMBOLS_FILE_PATH = 'tickers/s&p500.csv'
+NAME_EXTRA = '-with-hv'
+
 START_DATE = datetime.datetime.strptime('2001-11-01', DATE_FORMAT)
 END_DATE = datetime.datetime.today()
+LOAD_PREV_DF = True
+EXTRA_COLS = ['unadjusted_open', 'unadjusted_close', '10d HV', '20d HV', '30d HV', '60d HV', '90d HV', '120d HV',
+              '150d HV', '180d HV', 'days_behind']
 
 DTE_FROM = 0
 DTE_TO = 30
@@ -28,26 +37,32 @@ LOCK = threading.Lock()
 ivol.set_login_params(api_key='S3kG46572xj4yMg4')
 get_options_data = ivol.set_method('/equities/eod/stock-opts-by-param')
 get_price_data = ivol.set_method('/equities/eod/stock-prices')
+get_hv_data = ivol.set_method('/equities/eod/hv')
 
 
 class OptionsDataCollector:
-    def __init__(self, symbols, prev_df=None):
-        symbols_done = set(prev_df['symbol']) if prev_df is not None and not prev_df.empty else set()
+    def __init__(self, symbols, name):
+        self.save_path = f'options-data/{name}-{len(symbols)}-{DTE_FROM}-{DTE_TO}-' \
+                         f'{MONEYNESS_FROM}-{MONEYNESS_TO}-{OPTION_TYPE}.parquet'
+        if LOAD_PREV_DF and os.path.exists(self.save_path):
+            self.df = pd.read_parquet(self.save_path)
+        else:
+            self.df = pd.DataFrame()
+        self.to_concat = [self.df]
+
+        symbols_done = set() if self.df.empty else set(self.df['symbol'])
         symbols_to_do = [symbol for symbol in symbols['Symbol'] if symbol not in symbols_done]
         self.symbols = symbols_to_do
 
-        nyse_dates = xcal.get_calendar(
-            'NASDAQ', start=START_DATE.strftime(DATE_FORMAT), end=END_DATE.strftime(DATE_FORMAT)).schedule['open']
-        nasdaq_dates = xcal.get_calendar(
-            'NASDAQ', start=START_DATE.strftime(DATE_FORMAT), end=END_DATE.strftime(DATE_FORMAT)).schedule['open']
-        self.dates = list(sorted(set(list(nyse_dates) + list(nasdaq_dates))))
-
-        self.prev_df = pd.DataFrame if prev_df is None else prev_df
+        # nyse_dates = xcal.get_calendar(
+        #     'NASDAQ', start=START_DATE.strftime(DATE_FORMAT), end=END_DATE.strftime(DATE_FORMAT)).schedule['open']
+        # nasdaq_dates = xcal.get_calendar(
+        #     'NASDAQ', start=START_DATE.strftime(DATE_FORMAT), end=END_DATE.strftime(DATE_FORMAT)).schedule['open']
+        # self.dates = list(sorted(set(list(nyse_dates) + list(nasdaq_dates))))
 
         self.futures = set()
-        self.data = []
-
         self.executor = None
+
         self.start = None
 
     def run(self):
@@ -59,32 +74,35 @@ class OptionsDataCollector:
                 self.update(f'({i:,} / {len(self.symbols):,}) {symbol}')
                 self.process_symbol(symbol)
 
-                self.update(f'Saving {asizeof.asizeof(self.data) / 1024 ** 2:,.2f}MB of data...')
-                self.save_data(f'options-data/{len(self.symbols)}-{int(self.start)}.csv')
-
     def process_symbol(self, symbol):
         price_data = self.get_price_data(symbol)
         if price_data.empty:
             self.update(f'Skipping {symbol} because of empty price data', red=True)
             return
 
-        self.update(f'Gathering options data for {len(self.dates):,} dates...')
-        for result in self.process_dates(symbol):
-            self.data.append(self.fix_symbol(self.add_data(result, price_data), symbol))
+        for result in self.process_dates(symbol, price_data.index):
+            if result.empty:
+                continue
+            self.to_concat.append(self.fix_data(self.add_data(result, price_data), symbol))
 
-        self.update(f'Finished processing {len(self.dates):,} dates')
+        self.save_data()
 
-    def process_dates(self, symbol):
-        for j, date in enumerate(reversed(self.dates), 1):
-            self.futures.add(self.executor.submit(self.get_options_data, symbol, date.strftime('%Y-%m-%d')))
+    def process_dates(self, symbol, dates):
+        self.update(f'Gathering options data for {len(dates):,} dates...')
+
+        for i, date in enumerate(dates, 1):
+            if isinstance(date, datetime.datetime):
+                date = date.strftime('%Y-%m-%d')
+            self.futures.add(self.executor.submit(self.get_options_data, symbol, date))
 
             for result in self.manage_futures():
                 yield result
 
-            if j % 100 != 0:
+            if i % 100 != 0:
                 continue
+            self.update(f'    ({i:,} / {len(dates):,}) dates processed')
 
-            self.update(f'    ({j:,} / {len(self.dates):,}) dates processed')
+        self.update(f'Finished processing {len(dates):,} dates')
 
     def get_options_data(self, symbol, date):
         error, results = get_options_data(symbol=symbol, tradeDate=date, dteFrom=DTE_FROM, dteTo=DTE_TO,
@@ -104,18 +122,18 @@ class OptionsDataCollector:
     @staticmethod
     def create_new_row(date, price_data):
         if date is None:
-            return [None, None, None]
+            return [None for _ in range(len(EXTRA_COLS))]
 
         attempts = 0
         while attempts < 5:
             try:
-                return [price_data['open'][date], price_data['close'][date], attempts]
+                return [attempts if col == 'days_behind' else price_data[col][date] for col in EXTRA_COLS]
             except KeyError:
                 date = (datetime.datetime.strptime(date, DATE_FORMAT) - datetime.timedelta(days=1)).strftime(
                     DATE_FORMAT)
                 attempts += 1
 
-        return [None, None, None]
+        return [None for _ in range(len(EXTRA_COLS))]
 
     def add_data(self, df, price_data):
         if df.empty:
@@ -128,38 +146,64 @@ class OptionsDataCollector:
         for date in df['expiration_date'].values:
             new_data.append(self.create_new_row(date, price_data))
 
-        df[['open_expiry_price', 'close_expiry_price', 'days_behind']] = new_data
+        df[EXTRA_COLS] = new_data
         return df
 
     @staticmethod
-    def fix_symbol(df, symbol):
+    def fix_data(df, symbol):
+        df = df.dropna(axis=0, how='all')
+        if df.empty:
+            return df
         df['symbol'] = symbol
+        df['price_strike'] = df['price_strike'].astype(np.float32)
+        df['option_symbol'] = df['symbol'].str.ljust(6) + pd.to_datetime(
+            df['expiration_date'], format=DATE_FORMAT).dt.strftime('Ymd') + df['call_put'] + df[
+            'price_strike'].astype(str).str.split('.').str[0].str.rjust(5) + df[
+            'price_strike'].astype(str).str.split('.').str[1].str.ljust(3)
         return df
 
-    def get_price_data(self, symbol):
-        attempts, error, price_data = 0, None, pd.DataFrame()
+    def get_data(self, func, context, *args, **kwargs):
+        attempts, error, data = 0, None, pd.DataFrame()
+
         while attempts < 3:
-            error, price_data = get_price_data(symbol=symbol, from_=START_DATE.strftime(DATE_FORMAT),
-                                               to=END_DATE.strftime(DATE_FORMAT), timeout=TIMEOUT, pause=PAUSE)
-            if error is not None or price_data.empty or 'error' in price_data.columns:
+            error, data = func(*args, **kwargs)
+            if error is not None or data.empty or 'error' in data.columns:
                 attempts += 1
                 continue
-            break
+            return data
 
+        if error is not None:
+            self.update(f'Error: {error} - {context}', red=True)
+        elif data.empty:
+            self.update(f'Empty Results - {context}', red=True)
+        elif 'error' in data.columns:
+            results = pd.DataFrame()
+            self.update(f'Error: {results["error"].iloc[0]} - {context}', red=True)
         else:
-            if error is not None:
-                self.update(f'Error: {error} - {symbol}', red=True)
-            elif price_data.empty:
-                self.update(f'Empty Results - {symbol}', red=True)
-            elif 'error' in price_data.columns:
-                results = pd.DataFrame()
-                self.update(f'Error: {results["error"].iloc[0]} - {symbol}', red=True)
-            else:
-                self.update('How did we get here? Something went wrong.', red=True)
+            self.update('How did we get here? Something went wrong.', red=True)
+
+        return data
+
+    def get_price_data(self, symbol):
+        price_data = self.get_data(get_price_data, context=symbol, symbol=symbol,
+                                   from_=START_DATE.strftime(DATE_FORMAT), to=END_DATE.strftime(DATE_FORMAT),
+                                   timeout=TIMEOUT, pause=PAUSE)
+        if price_data.empty:
             return price_data
 
-        price_data['date'] = [x.split(' ')[0] for x in price_data['date']]
+        price_data['unadjusted_open'] = price_data['open'] * price_data['unadjusted_close'] / price_data['close']
+        price_data['date'] = price_data['date'].str.split().str[0]
         price_data.set_index('date', drop=True, inplace=True)
+
+        hv_data = self.get_data(get_hv_data, context=symbol, symbol=symbol, from_=price_data.index[-1],
+                                to=price_data.index[0], timeout=TIMEOUT, pause=PAUSE)
+        if hv_data.empty:
+            return hv_data
+
+        hv_data['date'] = hv_data['date'].str.split().str[0]
+        hv_data.set_index('date', drop=True, inplace=True)
+        hv_data = hv_data[hv_data.index.isin(price_data.index)]
+        price_data = pd.concat([price_data, hv_data], axis=1)
 
         return price_data
 
@@ -178,10 +222,11 @@ class OptionsDataCollector:
             if len(self.futures) <= MAX_THREADS * 5:
                 break
 
-    def save_data(self, file_path):
-        to_concat = [x for x in self.data + [self.prev_df] if not x.empty]
-        if to_concat:
-            pd.concat(to_concat, ignore_index=True).to_csv(file_path)
+    def save_data(self):
+        self.df = pd.concat(self.to_concat, ignore_index=True)
+        self.to_concat = [self.df]
+        self.update(f'Saving {self.df.memory_usage(deep=True).sum() / 1024 ** 3:,.2f}GB of data...')
+        self.df.to_parquet(self.save_path)
 
     def update(self, message, red=False):
         if red:
@@ -192,7 +237,8 @@ class OptionsDataCollector:
 
 
 def main():
-    collector = OptionsDataCollector(pd.read_csv(SYMBOLS_FILE_PATH))
+    name = SYMBOLS_FILE_PATH.split('/')[1].replace('.csv', '') + NAME_EXTRA
+    collector = OptionsDataCollector(pd.read_csv(SYMBOLS_FILE_PATH), name)
     collector.run()
 
 
